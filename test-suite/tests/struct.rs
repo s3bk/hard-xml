@@ -45,7 +45,7 @@ fn test() -> XmlResult<()> {
 
     assert_eq!(
         (Tag3 {
-            att1: "att1".into(),
+            att1: "\"att1\"".into(),
             tag1: vec![Tag1 {
                 att1: None,
                 content: "content".into(),
@@ -54,7 +54,7 @@ fn test() -> XmlResult<()> {
             text: Some("tag3_content".into()),
         })
         .to_string()?,
-        r#"<tag3 att1="att1"><tag1>content</tag1><text>tag3_content</text></tag3>"#
+        r#"<tag3 att1="&quot;att1&quot;"><tag1>content</tag1><text>tag3_content</text></tag3>"#
     );
 
     assert_eq!(
@@ -78,9 +78,11 @@ fn test() -> XmlResult<()> {
     );
 
     assert_eq!(
-        Tag4::from_str(r#"<tag3 att1="att1"><tag2 att1="att1" att2="att2"></tag2></tag3>"#)?,
+        Tag4::from_str(
+            r#"<tag3 att1="&quot;att1&quot;"><tag2 att1="att1" att2="att2"></tag2></tag3>"#
+        )?,
         Tag4(Tag3 {
-            att1: "att1".into(),
+            att1: "\"att1\"".into(),
             tag1: vec![],
             tag2: Some(Tag2 {
                 att1: "att1".into(),
