@@ -118,7 +118,7 @@ impl<'a> XmlReader<'a> {
                     let value = value.as_str();
                     let span = span.as_str(); // key="value"
                     let key = &span[0..span.len() - value.len() - 3]; // remove `="`, value and `"`
-                    let value = Cow::Borrowed(value);
+                    let value = xml_unescape(value)?;
                     self.next();
                     return Ok(Some((key, value)));
                 }
