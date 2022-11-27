@@ -2,6 +2,7 @@
 
 extern crate proc_macro;
 
+mod attrs;
 mod read;
 mod types;
 mod utils;
@@ -23,13 +24,23 @@ pub fn derive_xml_read(input: TokenStream) -> TokenStream {
 
     let where_clause = &generics.where_clause;
 
-    let input_lifetime = utils::gen_input_lifetime(&generics);
+    let input_lifetime = utils::gen_input_lifetime(generics);
 
     let mut params_with_input_lifetime = generics.params.clone();
 
     params_with_input_lifetime.insert(0, input_lifetime.into());
 
-    let impl_read = read::impl_read(Element::parse(input.clone()));
+    let element = match Element::parse(input.clone()) {
+        Ok(element) => element,
+        Err(errors) => {
+            return errors
+                .into_iter()
+                .map(syn::Error::into_compile_error)
+                .collect::<proc_macro2::TokenStream>()
+                .into()
+        }
+    };
+    let impl_read = read::impl_read(element);
 
     let gen = quote! {
         impl <#params_with_input_lifetime> hard_xml::XmlRead<'__input> for #name <#params>
@@ -59,7 +70,17 @@ pub fn derive_xml_write(input: TokenStream) -> TokenStream {
 
     let where_clause = &generics.where_clause;
 
-    let impl_write = write::impl_write(Element::parse(input.clone()));
+    let element = match Element::parse(input.clone()) {
+        Ok(element) => element,
+        Err(errors) => {
+            return errors
+                .into_iter()
+                .map(syn::Error::into_compile_error)
+                .collect::<proc_macro2::TokenStream>()
+                .into()
+        }
+    };
+    let impl_write = write::impl_write(element);
 
     let gen = quote! {
         impl <#params> hard_xml::XmlWrite for #name <#params>

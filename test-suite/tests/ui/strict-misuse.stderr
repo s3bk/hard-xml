@@ -1,0 +1,11 @@
+error: unsupported argument to `strict`
+  --> tests/ui/strict-misuse.rs:14:14
+   |
+14 | #[xml(strict(data), tag = "UnsupportedArgument")]
+   |              ^^^^
+
+error: unsupported meta type in `strict`
+  --> tests/ui/strict-misuse.rs:18:14
+   |
+18 | #[xml(strict(data = "unknown_attributes"), tag = "UnsupportedMeta")]
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^

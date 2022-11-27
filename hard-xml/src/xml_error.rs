@@ -10,6 +10,7 @@ pub enum XmlError {
     UnexpectedToken { token: String },
     TagMismatch { expected: String, found: String },
     MissingField { name: String, field: String },
+    UnknownField { name: String, field: String },
     UnterminatedEntity { entity: String },
     UnrecognizedSymbol { symbol: String },
     FromStr(Box<dyn Error + Send + Sync>),
@@ -71,6 +72,9 @@ impl std::fmt::Display for XmlError {
             ),
             MissingField { name, field } => {
                 write!(f, "missing field in XML of {:?}: {:?}", name, field)
+            }
+            UnknownField { name, field } => {
+                write!(f, "unknown field {:?} in element {:?}", field, name)
             }
             UnterminatedEntity { entity } => write!(f, "unterminated XML entity: {}", entity),
             UnrecognizedSymbol { symbol } => write!(f, "unrecognized XML symbol: {}", symbol),

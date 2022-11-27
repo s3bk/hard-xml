@@ -10,3 +10,6 @@ chrono = "0.4"
 env_logger = "0.8"
 log = "0.4"
 hard-xml = { path = "../hard-xml", features = ["log"] }
+
+[dev-dependencies]
+trybuild = "1.0.71"
