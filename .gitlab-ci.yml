@@ -3,3 +3,9 @@ variables:
 
 include:
 - remote: 'https://gitlab.com/kevincox/rust-ci/-/raw/v1/gitlab-ci.yml'
+
+test-ui:
+  extends: rust-ci:test
+  image: rust:1.65.0-slim
+  variables:
+    RUSTFLAGS: --cfg uitest
