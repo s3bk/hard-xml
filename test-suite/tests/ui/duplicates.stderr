@@ -1,0 +1,23 @@
+error: duplicate `attr` attribute
+ --> tests/ui/duplicates.rs:7:28
+  |
+7 |     #[xml(attr = "field1", attr = "field2")]
+  |                            ^^^^
+
+error: Duplicate `cdata` attribute.
+  --> tests/ui/duplicates.rs:14:24
+   |
+14 |     #[xml(text, cdata, cdata)]
+   |                        ^^^^^
+
+error: Duplicate `flatten_text` attribute.
+  --> tests/ui/duplicates.rs:21:36
+   |
+21 |     #[xml(flatten_text = "field1", flatten_text = "field2")]
+   |                                    ^^^^^^^^^^^^
+
+error: Duplicate `text` attribute.
+  --> tests/ui/duplicates.rs:28:17
+   |
+28 |     #[xml(text, text)]
+   |                 ^^^^

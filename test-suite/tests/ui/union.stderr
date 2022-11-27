@@ -1,0 +1,7 @@
+error: hard-xml doesn't support union
+ --> tests/ui/union.rs:7:1
+  |
+7 | / union Data {
+8 | |     one: One,
+9 | | }
+  | |_^

@@ -1,0 +1,131 @@
+error: `text` attribute and `attr` attribute is disjoint.
+ --> tests/ui/conflicts.rs:7:28
+  |
+7 |     #[xml(attr = "field1", cdata)]
+  |                            ^^^^^
+
+error: `child` attribute and `attr` attribute is disjoint.
+  --> tests/ui/conflicts.rs:14:28
+   |
+14 |     #[xml(attr = "field1", child = "field2")]
+   |                            ^^^^^
+
+error: `flatten_text` attribute and `attr` attribute is disjoint.
+  --> tests/ui/conflicts.rs:21:28
+   |
+21 |     #[xml(attr = "field1", flatten_text = "field2")]
+   |                            ^^^^^^^^^^^^
+
+error: `text` attribute and `attr` attribute is disjoint.
+  --> tests/ui/conflicts.rs:28:28
+   |
+28 |     #[xml(attr = "field1", text)]
+   |                            ^^^^
+
+error: `attr` attribute and `cdata` attribute is disjoint
+  --> tests/ui/conflicts.rs:35:18
+   |
+35 |     #[xml(cdata, attr = "field1")]
+   |                  ^^^^
+
+error: field should have one of `attr`, `child`, `text` or `flatten_text` attribute
+  --> tests/ui/conflicts.rs:35:5
+   |
+35 |     #[xml(cdata, attr = "field1")]
+   |     ^
+
+error: `child` attribute and `cdata` attribute is disjoint.
+  --> tests/ui/conflicts.rs:42:18
+   |
+42 |     #[xml(cdata, child = "field1")]
+   |                  ^^^^^
+
+error: field should have one of `attr`, `child`, `text` or `flatten_text` attribute
+  --> tests/ui/conflicts.rs:42:5
+   |
+42 |     #[xml(cdata, child = "field1")]
+   |     ^
+
+error: `attr` attribute and `child` attribute is disjoint
+  --> tests/ui/conflicts.rs:49:29
+   |
+49 |     #[xml(child = "field1", attr = "field2")]
+   |                             ^^^^
+
+error: `child` attribute only supports Vec<T>, Option<T>, and T
+  --> tests/ui/conflicts.rs:50:12
+   |
+50 |     field: Cow<'t, str>,
+   |            ^^^
+
+error: `text` attribute and `child` attribute is disjoint.
+  --> tests/ui/conflicts.rs:56:29
+   |
+56 |     #[xml(child = "field1", cdata)]
+   |                             ^^^^^
+
+error: `child` attribute only supports Vec<T>, Option<T>, and T
+  --> tests/ui/conflicts.rs:57:12
+   |
+57 |     field: Cow<'t, str>,
+   |            ^^^
+
+error: `flatten_text` attribute and `child` attribute is disjoint.
+  --> tests/ui/conflicts.rs:63:29
+   |
+63 |     #[xml(child = "field1", flatten_text = "field2")]
+   |                             ^^^^^^^^^^^^
+
+error: `child` attribute only supports Vec<T>, Option<T>, and T
+  --> tests/ui/conflicts.rs:64:12
+   |
+64 |     field: Cow<'t, str>,
+   |            ^^^
+
+error: `text` attribute and `child` attribute is disjoint.
+  --> tests/ui/conflicts.rs:70:29
+   |
+70 |     #[xml(child = "field1", text)]
+   |                             ^^^^
+
+error: `child` attribute only supports Vec<T>, Option<T>, and T
+  --> tests/ui/conflicts.rs:71:12
+   |
+71 |     field: Cow<'t, str>,
+   |            ^^^
+
+error: `attr` attribute and `flatten_text` attribute is disjoint
+  --> tests/ui/conflicts.rs:77:36
+   |
+77 |     #[xml(flatten_text = "field1", attr = "field2")]
+   |                                    ^^^^
+
+error: `child` attribute and `flatten_text` attribute is disjoint.
+  --> tests/ui/conflicts.rs:84:36
+   |
+84 |     #[xml(flatten_text = "field1", child = "field2")]
+   |                                    ^^^^^
+
+error: `text` attribute and `flatten_text` attribute is disjoint.
+  --> tests/ui/conflicts.rs:91:36
+   |
+91 |     #[xml(flatten_text = "field1", text)]
+   |                                    ^^^^
+
+error: `attr` attribute and `text` attribute is disjoint
+  --> tests/ui/conflicts.rs:98:17
+   |
+98 |     #[xml(text, attr = "field1")]
+   |                 ^^^^
+
+error: `child` attribute and `text` attribute is disjoint.
+   --> tests/ui/conflicts.rs:105:17
+    |
+105 |     #[xml(text, child = "field1")]
+    |                 ^^^^^
+
+error: `flatten_text` attribute and `text` attribute is disjoint.
+   --> tests/ui/conflicts.rs:112:17
+    |
+112 |     #[xml(text, flatten_text = "field1")]
+    |                 ^^^^^^^^^^^^

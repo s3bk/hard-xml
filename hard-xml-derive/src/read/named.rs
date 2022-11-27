@@ -2,9 +2,14 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Ident, LitStr};
 
-use crate::types::{Field, Type};
+use crate::types::{Field, StrictMode, Type};
 
-pub fn read(tag: &LitStr, ele_name: TokenStream, fields: &[Field]) -> TokenStream {
+pub fn read(
+    tag: &LitStr,
+    strict: StrictMode,
+    ele_name: TokenStream,
+    fields: &[Field],
+) -> TokenStream {
     let init_fields = fields.iter().map(|field| match field {
         Field::Attribute { bind, ty, .. }
         | Field::Child { bind, ty, .. }
@@ -44,7 +49,7 @@ pub fn read(tag: &LitStr, ele_name: TokenStream, fields: &[Field]) -> TokenStrea
             tag,
             name,
             ..
-        } => Some(read_attrs(&tag, &bind, &name, &ty, &ele_name)),
+        } => Some(read_attrs(tag, bind, name, ty, &ele_name)),
         _ => None,
     });
 
@@ -71,7 +76,7 @@ pub fn read(tag: &LitStr, ele_name: TokenStream, fields: &[Field]) -> TokenStrea
     });
 
     let read_text_fields = fields.iter().filter_map(|field| match field {
-        Field::Text { bind, ty, name, .. } => Some(read_text(&tag, bind, name, ty, &ele_name)),
+        Field::Text { bind, ty, name, .. } => Some(read_text(tag, bind, name, ty, &ele_name)),
         _ => None,
     });
 
@@ -87,6 +92,19 @@ pub fn read(tag: &LitStr, ele_name: TokenStream, fields: &[Field]) -> TokenStrea
         hard_xml::log_finish_reading!(#ele_name);
 
         return Ok(__res);
+    };
+
+    let unknown_element_handler = if strict.contains(StrictMode::UNKNOWN_ELEMENT) {
+        quote! {
+            return Err(XmlError::UnknownField { name: stringify!(#ele_name).to_owned(), field: tag.to_owned() });
+        }
+    } else {
+        quote! {
+            hard_xml::log_skip_element!(#ele_name, tag);
+            // skip the start tag
+            reader.next();
+            reader.read_to_end(tag)?;
+        }
     };
 
     let read_content = if is_text_element {
@@ -105,16 +123,19 @@ pub fn read(tag: &LitStr, ele_name: TokenStream, fields: &[Field]) -> TokenStrea
                     #( #read_child_fields, )*
                     #( #read_flatten_text_fields, )*
                     tag => {
-                        hard_xml::log_skip_element!(#ele_name, tag);
-                        // skip the start tag
-                        reader.next();
-                        reader.read_to_end(tag)?;
+                        #unknown_element_handler
                     },
                 }
             }
 
             #return_fields
         }
+    };
+
+    let unknown_attribute_handler = if strict.contains(StrictMode::UNKNOWN_ATTRIBUTE) {
+        quote!(return Err(XmlError::UnknownField { name: stringify!(#ele_name).to_owned(), field: key.to_owned()});)
+    } else {
+        quote!(hard_xml::log_skip_attribute!(#ele_name, key);)
     };
 
     quote! {
@@ -128,7 +149,7 @@ pub fn read(tag: &LitStr, ele_name: TokenStream, fields: &[Field]) -> TokenStrea
             match __key {
                 #( #read_attr_fields, )*
                 key => {
-                    hard_xml::log_skip_attribute!(#ele_name, key);
+                    #unknown_attribute_handler
                 },
             }
         }

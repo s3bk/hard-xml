@@ -1,8 +1,14 @@
-use proc_macro2::TokenStream;
+use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
-use syn::{Lit::*, Meta::*, *};
+use syn::{spanned::Spanned, *};
 
-use crate::utils::elide_type_lifetimes;
+use crate::{
+    attrs,
+    utils::{elide_type_lifetimes, Context},
+};
+use bitflags::bitflags;
+
+type Result<T, E = Vec<syn::Error>> = std::result::Result<T, E>;
 
 pub enum Element {
     Struct { name: Ident, fields: Fields },
@@ -29,6 +35,7 @@ pub enum Fields {
     /// ```
     Named {
         tag: LitStr,
+        strict: StrictMode,
         name: Ident,
         fields: Vec<Field>,
     },
@@ -48,7 +55,7 @@ pub enum Fields {
     Newtype {
         tags: Vec<LitStr>,
         name: Ident,
-        ty: Type,
+        ty: Box<Type>,
     },
 }
 
@@ -137,231 +144,245 @@ pub enum Type {
 }
 
 impl Element {
-    pub fn parse(input: DeriveInput) -> Element {
-        match input.data {
+    pub fn parse(input: DeriveInput) -> Result<Element> {
+        let mut ctx = Context::default();
+
+        let element = match input.data {
             Data::Struct(data) => Element::Struct {
                 name: input.ident.clone(),
-                fields: Fields::parse(data.fields, input.attrs, input.ident),
+                fields: Fields::parse(&mut ctx, data.fields, input.attrs, input.ident),
             },
             Data::Enum(data) => Element::Enum {
                 name: input.ident,
                 variants: data
                     .variants
                     .into_iter()
-                    .map(|variant| Fields::parse(variant.fields, variant.attrs, variant.ident))
-                    .collect::<Vec<_>>(),
+                    .map(|variant| {
+                        Fields::parse(&mut ctx, variant.fields, variant.attrs, variant.ident)
+                    })
+                    .collect(),
             },
-            Data::Union(_) => panic!("hard-xml doesn't support Union."),
-        }
+            Data::Union(_) => {
+                return Err(vec![syn::Error::new_spanned(
+                    input,
+                    "hard-xml doesn't support union",
+                )]);
+            }
+        };
+
+        ctx.check().map(|_| element)
     }
 }
 
 impl Fields {
-    pub fn parse(fields: syn::Fields, attrs: Vec<Attribute>, name: Ident) -> Fields {
+    pub fn parse(
+        ctx: &mut Context,
+        mut fields: syn::Fields,
+        attrs: Vec<Attribute>,
+        name: Ident,
+    ) -> Fields {
         // Finding `tag` attribute
-        let mut tags = Vec::new();
-
-        for meta in attrs.into_iter().filter_map(get_xml_meta).flatten() {
-            match meta {
-                NestedMeta::Meta(NameValue(m)) if m.path.is_ident("tag") => {
-                    if let Str(lit) = m.lit {
-                        tags.push(lit);
-                    } else {
-                        panic!("Expected a string literal.");
-                    }
-                }
-                _ => (),
-            }
-        }
+        let attrs::Container {
+            mut tags,
+            strict_mode,
+        } = attrs::Container::parse(ctx, attrs);
 
         if tags.is_empty() {
-            panic!("Missing `tag` attribute.");
+            ctx.push_spanned_error(&name, "missing `tag` attribute");
         }
 
-        match fields {
-            syn::Fields::Unit => Fields::Named {
-                name,
-                tag: tags.remove(0),
-                fields: Vec::new(),
-            },
-            syn::Fields::Unnamed(fields) => {
-                // we will assume it's a newtype stuct/enum
-                // if it has only one field and no field attribute
-                if fields.unnamed.len() == 1 {
-                    let field = fields.unnamed.first().unwrap().clone();
-                    if field.attrs.into_iter().filter_map(get_xml_meta).count() == 0 {
-                        return Fields::Newtype {
-                            name,
-                            tags,
-                            ty: Type::parse(field.ty),
-                        };
-                    }
-                }
+        // Special handling for newtypes, which can have multiple tags
+        if let syn::Fields::Unnamed(ref mut fields) = fields {
+            if is_new_type(fields) {
+                let ty = fields.unnamed.pop().unwrap().into_value().ty;
+                let ty = Box::new(Type::parse(ty));
 
-                Fields::Named {
-                    name,
-                    tag: tags.remove(0),
-                    fields: fields
-                        .unnamed
-                        .into_iter()
-                        .enumerate()
-                        .map(|(index, field)| {
-                            let index = syn::Index::from(index);
-                            let bind = format_ident!("__self_{}", index);
-                            Field::parse(quote!(#index), bind, field)
-                        })
-                        .collect::<Vec<_>>(),
-                }
+                return Fields::Newtype { tags, name, ty };
             }
-            syn::Fields::Named(_) => Fields::Named {
-                name,
-                tag: tags.remove(0),
-                fields: fields
-                    .into_iter()
-                    .map(|field| {
-                        let name = field.ident.clone().unwrap();
-                        let bind = format_ident!("__self_{}", name);
-                        Field::parse(quote!(#name), bind, field)
-                    })
-                    .collect::<Vec<_>>(),
-            },
+        }
+
+        let fields = match fields {
+            syn::Fields::Unit => Vec::new(),
+
+            syn::Fields::Unnamed(fields) => fields
+                .unnamed
+                .into_iter()
+                .enumerate()
+                .filter_map(|(index, field)| {
+                    let index = syn::Index::from(index);
+                    let bind = format_ident!("__self_{}", index);
+
+                    Field::parse(ctx, quote!(#index), bind, field)
+                })
+                .collect(),
+
+            syn::Fields::Named(_) => fields
+                .into_iter()
+                .filter_map(|field| {
+                    let name = field.ident.clone().unwrap();
+                    let bind = format_ident!("__self_{}", name);
+
+                    Field::parse(ctx, quote!(#name), bind, field)
+                })
+                .collect(),
+        };
+
+        // TODO should extraneous tags be an error?
+        let tag = if !tags.is_empty() {
+            tags.swap_remove(0)
+        } else {
+            LitStr::new("", Span::call_site())
+        };
+
+        Fields::Named {
+            tag,
+            strict: strict_mode,
+            name,
+            fields,
         }
     }
 }
 
-impl Field {
-    pub fn parse(name: TokenStream, bind: Ident, field: syn::Field) -> Field {
-        let mut default = false;
-        let mut attr_tag = None;
-        let mut child_tags = Vec::new();
-        let mut is_text = false;
-        let mut flatten_text_tag = None;
-        let mut is_cdata = false;
+fn is_new_type(fields: &FieldsUnnamed) -> bool {
+    fields.unnamed.len() == 1
+        && fields.unnamed[0]
+            .attrs
+            .iter()
+            .all(|attr| attrs::get_xml_meta(attr).is_none())
+}
 
-        for meta in field.attrs.into_iter().filter_map(get_xml_meta).flatten() {
-            match meta {
-                NestedMeta::Meta(Path(p)) if p.is_ident("default") => {
-                    if default {
-                        panic!("Duplicate `default` attribute.");
-                    } else {
-                        default = true;
-                    }
-                }
-                NestedMeta::Meta(NameValue(m)) if m.path.is_ident("attr") => {
-                    if let Str(lit) = m.lit {
-                        if attr_tag.is_some() {
-                            panic!("Duplicate `attr` attribute.");
-                        } else if is_text {
-                            panic!("`attr` attribute and `text` attribute is disjoint.");
-                        } else if is_cdata {
-                            panic!("`attr` attribute and `cdata` attribute is disjoint.")
-                        } else if !child_tags.is_empty() {
-                            panic!("`attr` attribute and `child` attribute is disjoint.");
-                        } else if flatten_text_tag.is_some() {
-                            panic!("`attr` attribute and `flatten_text` attribute is disjoint.");
-                        } else {
-                            attr_tag = Some(lit);
-                        }
-                    } else {
-                        panic!("Expected a string literal.");
-                    }
-                }
-                NestedMeta::Meta(Path(ref p)) if p.is_ident("text") => {
-                    if is_text {
-                        panic!("Duplicate `text` attribute.");
-                    } else if attr_tag.is_some() {
-                        panic!("`text` attribute and `attr` attribute is disjoint.");
-                    } else if !child_tags.is_empty() {
-                        panic!("`text` attribute and `child` attribute is disjoint.");
-                    } else if flatten_text_tag.is_some() {
-                        panic!("`text` attribute and `flatten_text` attribute is disjoint.");
-                    } else {
-                        is_text = true;
-                    }
-                }
-                NestedMeta::Meta(Path(ref p)) if p.is_ident("cdata") => {
-                    if is_cdata {
-                        panic!("Duplicate `cdata` attribute.");
-                    } else if attr_tag.is_some() {
-                        panic!("`text` attribute and `attr` attribute is disjoint.");
-                    } else if !child_tags.is_empty() {
-                        panic!("`text` attribute and `child` attribute is disjoint.");
-                    } else {
-                        is_cdata = true;
-                    }
-                }
-                NestedMeta::Meta(NameValue(m)) if m.path.is_ident("child") => {
-                    if let Str(lit) = m.lit {
-                        if is_text {
-                            panic!("`child` attribute and `text` attribute is disjoint.");
-                        } else if attr_tag.is_some() {
-                            panic!("`child` attribute and `attr` attribute is disjoint.");
-                        } else if is_cdata {
-                            panic!("`child` attribute and `cdata` attribute is disjoint.")
-                        } else if flatten_text_tag.is_some() {
-                            panic!("`child` attribute and `flatten_text` attribute is disjoint.");
-                        } else {
-                            child_tags.push(lit);
-                        }
-                    } else {
-                        panic!("Expected a string literal.");
-                    }
-                }
-                NestedMeta::Meta(NameValue(m)) if m.path.is_ident("flatten_text") => {
-                    if let Str(lit) = m.lit {
-                        if is_text {
-                            panic!("`flatten_text` attribute and `text` attribute is disjoint.");
-                        } else if !child_tags.is_empty() {
-                            panic!("`flatten_text` attribute and `child` attribute is disjoint.");
-                        } else if attr_tag.is_some() {
-                            panic!("`flatten_text` attribute and `attr` attribute is disjoint.");
-                        } else if flatten_text_tag.is_some() {
-                            panic!("Duplicate `flatten_text` attribute.");
-                        } else {
-                            flatten_text_tag = Some(lit);
-                        }
-                    } else {
-                        panic!("Expected a string literal.");
-                    }
-                }
-                _ => (),
+impl Field {
+    pub fn parse(
+        ctx: &mut Context,
+        name: TokenStream,
+        bind: Ident,
+        field: syn::Field,
+    ) -> Option<Field> {
+        let span = field.span();
+
+        let attrs = attrs::Field::parse(ctx, field.attrs);
+        let kind = FieldKind::from_attributes(ctx, attrs, span)?;
+
+        let span = field.ty.span();
+        let ty = Type::parse(field.ty);
+
+        kind.into_field(ctx, name, bind, ty, span)
+    }
+}
+
+enum FieldKind {
+    Attribute(LitStr, bool),
+    Child(Vec<LitStr>, bool),
+    FlattenText {
+        tag: LitStr,
+        cdata: bool,
+        default: bool,
+    },
+    Text(bool),
+}
+
+impl FieldKind {
+    fn into_field(
+        self,
+        ctx: &mut Context,
+        name: TokenStream,
+        bind: Ident,
+        ty: Type,
+        span: Span,
+    ) -> Option<Field> {
+        self.verify_type(ctx, &ty, span).then(|| match self {
+            FieldKind::Attribute(tag, default) => Field::Attribute {
+                name,
+                bind,
+                ty,
+                tag,
+                default,
+            },
+            FieldKind::Child(tags, default) => Field::Child {
+                name,
+                bind,
+                ty,
+                default,
+                tags,
+            },
+            FieldKind::FlattenText {
+                tag,
+                cdata,
+                default,
+            } => Field::FlattenText {
+                name,
+                bind,
+                ty,
+                default,
+                tag,
+                is_cdata: cdata,
+            },
+            FieldKind::Text(cdata) => Field::Text {
+                name,
+                bind,
+                ty,
+                is_cdata: cdata,
+            },
+        })
+    }
+
+    fn from_attributes(ctx: &mut Context, attrs: attrs::Field, span: Span) -> Option<Self> {
+        let attrs::Field {
+            attr_tag,
+            child_tags,
+            flatten_text_tag,
+            is_text,
+            ..
+        } = attrs;
+
+        match (attr_tag, child_tags.as_slice(), flatten_text_tag, is_text) {
+            (Some(tag), &[], None, false) => Some(Self::Attribute(tag, attrs.default)),
+            (None, &[_, ..], None, false) => Some(Self::Child(child_tags, attrs.default)),
+            (None, &[], Some(tag), false) => Some(Self::FlattenText {
+                tag,
+                cdata: attrs.is_cdata,
+                default: attrs.default,
+            }),
+            (None, &[], None, true) => Some(Self::Text(attrs.is_cdata)),
+
+            (None, &[], None, false) => {
+                ctx.push_new_error(
+                    span,
+                    "field should have one of `attr`, `child`, `text` or `flatten_text` attribute",
+                );
+                None
+            }
+            _ => {
+                ctx.push_new_error(
+                    span,
+                    "the attributes `attr`, `child`, `text` and `flatten_text` are mutually exclusive",
+                );
+                None
             }
         }
+    }
 
-        if let Some(tag) = attr_tag {
-            Field::Attribute {
-                name,
-                bind,
-                ty: Type::parse(field.ty),
-                tag,
-                default,
+    fn verify_type(&self, ctx: &mut Context, ty: &Type, span: Span) -> bool {
+        match self {
+            FieldKind::Attribute(_, _) if ty.is_vec() => {
+                ctx.push_new_error(span, "`attr` attribute doesn't support Vec");
+                false
             }
-        } else if !child_tags.is_empty() {
-            Field::Child {
-                name,
-                bind,
-                ty: Type::parse(field.ty),
-                default,
-                tags: child_tags,
+            FieldKind::Child(_, _)
+                if !matches!(ty, Type::OptionT(_) | Type::T(_) | Type::VecT(_)) =>
+            {
+                ctx.push_new_error(
+                    span,
+                    "`child` attribute only supports Vec<T>, Option<T>, and T",
+                );
+                false
             }
-        } else if is_text {
-            Field::Text {
-                name,
-                bind,
-                ty: Type::parse(field.ty),
-                is_cdata,
+            FieldKind::Text(_) if ty.is_vec() => {
+                ctx.push_new_error(span, "`text` attribute doesn't support Vec");
+                false
             }
-        } else if let Some(tag) = flatten_text_tag {
-            Field::FlattenText {
-                name,
-                bind,
-                ty: Type::parse(field.ty),
-                default,
-                tag,
-                is_cdata,
-            }
-        } else {
-            panic!("Field should have one of `attr`, `child`, `text` or `flatten_text` attribute.");
+
+            _ => true,
         }
     }
 }
@@ -449,17 +470,17 @@ impl Type {
         elide_type_lifetimes(&mut ty);
 
         if let Some(ty) = is_vec(&ty) {
-            if is_cow_str(&ty) {
+            if is_cow_str(ty) {
                 Type::VecCowStr
-            } else if is_bool(&ty) {
+            } else if is_bool(ty) {
                 Type::VecBool
             } else {
                 Type::VecT(ty.clone())
             }
         } else if let Some(ty) = is_option(&ty) {
-            if is_cow_str(&ty) {
+            if is_cow_str(ty) {
                 Type::OptionCowStr
-            } else if is_bool(&ty) {
+            } else if is_bool(ty) {
                 Type::OptionBool
             } else {
                 Type::OptionT(ty.clone())
@@ -474,13 +495,9 @@ impl Type {
     }
 }
 
-fn get_xml_meta(attr: Attribute) -> Option<Vec<NestedMeta>> {
-    if attr.path.segments.len() == 1 && attr.path.segments[0].ident == "xml" {
-        match attr.parse_meta() {
-            Ok(Meta::List(meta)) => Some(meta.nested.iter().cloned().collect()),
-            _ => None,
-        }
-    } else {
-        None
+bitflags! {
+    pub struct StrictMode: u8 {
+        const UNKNOWN_ATTRIBUTE = 0b0000_0001;
+        const UNKNOWN_ELEMENT = 0b0000_0010;
     }
 }
