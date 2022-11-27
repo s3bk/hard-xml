@@ -14,7 +14,8 @@ pub(crate) struct Container {
 
 impl Container {
     pub(crate) fn parse(ctx: &mut Context, attrs: Vec<Attribute>) -> Self {
-        let (mut tags, mut strict_mode) = (Vec::new(), StrictMode::empty());
+        let mut tags = Vec::new();
+        let mut strict_mode = StrictMode::empty();
 
         for meta in attrs.iter().filter_map(get_xml_meta).flatten() {
             match meta {
