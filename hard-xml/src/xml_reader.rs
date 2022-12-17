@@ -37,7 +37,7 @@ impl<'a> XmlReader<'a> {
 
     #[inline]
     pub fn read_text(&mut self, end_tag: &str) -> XmlResult<Cow<'a, str>> {
-        let mut res = None;
+        let mut res = Cow::Borrowed("");
 
         while let Some(token) = self.next() {
             match token? {
@@ -47,10 +47,19 @@ impl<'a> XmlReader<'a> {
                 }
                 | Token::Attribute { .. } => (),
                 Token::Text { text } => {
-                    res = Some(xml_unescape(text.as_str())?);
+                    let text = xml_unescape(text.as_str())?;
+                    if res.is_empty() {
+                        res = text;
+                    } else {
+                        res.to_mut().push_str(&text);
+                    }
                 }
                 Token::Cdata { text, .. } => {
-                    res = Some(Cow::Borrowed(text.as_str()));
+                    if res.is_empty() {
+                        res = Cow::Borrowed(text.as_str());
+                    } else {
+                        res.to_mut().push_str(&text);
+                    }
                 }
                 Token::ElementEnd {
                     end: ElementEnd::Close(_, _),
@@ -81,7 +90,7 @@ impl<'a> XmlReader<'a> {
             }
         }
 
-        Ok(res.unwrap_or_default())
+        Ok(res)
     }
 
     #[inline]
@@ -314,6 +323,21 @@ fn read_text() -> XmlResult<()> {
 
     assert!(reader.next().is_some()); // "<parent"
     assert_eq!(reader.read_text("parent")?, "&quot;&apos;&lt;&gt;&amp;");
+    assert!(reader.next().is_none());
+
+    reader = XmlReader::new("<parent>\n  text\n  \n</parent>");
+    assert!(reader.next().is_some()); // "<parent"
+    assert_eq!(reader.read_text("parent")?, "\n  text\n  \n");
+    assert!(reader.next().is_none());
+
+    reader = XmlReader::new("<parent>\n  <![CDATA[text]]>\n  \n</parent>");
+    assert!(reader.next().is_some()); // "<parent"
+    assert_eq!(reader.read_text("parent")?, "\n  text\n  \n");
+    assert!(reader.next().is_none());
+
+    reader = XmlReader::new("<parent>\n  <![CDATA[text1]]>\n  <![CDATA[text2]]>\n  \n</parent>");
+    assert!(reader.next().is_some()); // "<parent"
+    assert_eq!(reader.read_text("parent")?, "\n  text1\n  text2\n  \n");
     assert!(reader.next().is_none());
 
     Ok(())
