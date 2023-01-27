@@ -1,6 +1,6 @@
 [package]
 name = "hard-xml"
-version = "0.0.0"
+version = "1.21.1"
 homepage = "https://gitlab.com/kevincox/hard-xml"
 repository = "https://gitlab.com/kevincox/hard-xml"
 description = "Strong typed xml, based on xmlparser."
@@ -22,4 +22,4 @@ version = "0.0.0"
 path = "../hard-xml-derive"
 
 [dev-dependencies]
-env_logger = "0.8"
+env_logger = "0.10"

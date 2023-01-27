@@ -14,6 +14,8 @@ fn test() -> XmlResult<()> {
     assert_eq!(Empty.to_string()?, "<empty/>");
 
     assert_eq!(Empty::from_str("<empty/>")?, Empty);
+    assert_eq!(Empty::from_str("<empty />")?, Empty);
+    assert_eq!(Empty::from_str("<empty></empty>")?, Empty);
 
     Ok(())
 }

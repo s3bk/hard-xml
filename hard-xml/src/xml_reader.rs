@@ -97,13 +97,18 @@ impl<'a> XmlReader<'a> {
     pub fn read_till_element_start(&mut self, end_tag: &str) -> XmlResult<()> {
         while let Some(token) = self.next() {
             match token? {
-                Token::ElementStart { span, .. } => {
+                Token::ElementStart { span, local, .. } => {
                     let tag = &span.as_str()[1..];
-                    if end_tag == tag {
-                        break;
+                    if end_tag.contains(":") {
+                        if tag == end_tag {
+                            break;
+                        }
                     } else {
-                        self.read_to_end(tag)?;
+                        if local.as_str() == end_tag {
+                            break;
+                        }
                     }
+                    self.read_to_end(tag)?;
                 }
                 Token::ElementEnd { .. }
                 | Token::Attribute { .. }
@@ -162,12 +167,16 @@ impl<'a> XmlReader<'a> {
                     return Ok(Some(&span.as_str()[1..]));
                 }
                 Ok(Token::ElementEnd {
-                    end: ElementEnd::Close(_, _),
+                    end: ElementEnd::Close(ns, name),
                     span,
                 }) if end_tag.is_some() => {
                     let end_tag = end_tag.unwrap();
-                    let span = span.as_str(); // </tag>
-                    let tag = &span[2..span.len() - 1]; // remove `</` and `>`
+                    let tag = if end_tag.contains(":") {
+                        let span = span.as_str(); // </tag>
+                        &span[2..span.len() - 1]  // remove `</` and `>`
+                    } else {
+                        name.as_str()
+                    };
                     if tag == end_tag {
                         self.next();
                         return Ok(None);
